@@ -1,0 +1,138 @@
+localaddr = ":8761"
+domain = "ubmedia"
+externaladdr = "https://localhost:8761"
+loglevel = "DEBUG"
+uploadpath = "vfs://upload/"
+uploadcachepath = "vfs://uploadcache/"
+filepath = "/files/"
+maxuploadtime = "1h"
+
+
+[webtls]
+type = "dev"
+initialtimeout = "1h"
+[webtls.minivault]
+baseurl = "https://localhost:8759/api/v1"
+parenttoken = "pa.2229c653983a459f.f0532d2aee9a15c6"
+tokentype = "server_cert"
+tokenpolicies = ["ubmedia.uploadermain"]
+tokeninterval = "48h"
+tokenttl = "96h"
+certtype = "server_cert"
+dnss = ["localhost"]
+uris = []
+ips = ["127.0.0.1", "::1"]
+certinterval = "24h"
+certttl = "48h"
+ca = ["certs/minivault.ca.pem"]
+usesystempool = false
+
+[vfs.upload]
+name = "upload"
+type = "os"
+[vfs.upload.os]
+basedir = "C:/temp/upload/data"
+
+[vfs.uploadcache]
+name = "uploadcache"
+type = "os"
+[vfs.uploadcache.os]
+basedir = "C:/temp/upload/cache"
+
+
+[vfs.drivec]
+name = "drivec"
+type = "os"
+[vfs.drivec.os]
+basedir = "C:/Users/micro/Downloads"
+
+[_vfs.digi_cache]
+name = "digi_cache"
+type = "sftp"
+[_vfs.digi_cache.sftp]
+address = "ub-mediasrv24.ub.p.unibas.ch:22"
+user = "root"
+privatekey = ["C:/daten/keys/syncthing/putty_ed25519.priv.openssh"]
+basedir = "/digi_cache"
+sessions = 3
+zipasfoldercache = 2
+
+[_vfs.ub-reprofiler]
+name = "ub-reprofiler"
+type = "sftp"
+[_vfs.ub-reprofiler.sftp]
+address = "ub-mediasrv24.ub.p.unibas.ch:22"
+user = "root"
+privatekey = ["C:/daten/keys/syncthing/putty_ed25519.priv.openssh"]
+basedir = "/digi/ub-reprofiler"
+sessions = 3
+zipasfoldercache = 2
+
+[_vfs.digiaccess]
+name = "digiaccess"
+type = "sftp"
+[_vfs.digiaccess.sftp]
+address = "ub-mediasrv24.ub.p.unibas.ch:22"
+user = "root"
+privatekey = ["C:/daten/keys/syncthing/putty_ed25519.priv.openssh"]
+basedir = "/digiaccess"
+sessions = 3
+zipasfoldercache = 2
+
+[_vfs.test]
+name = "test"
+type = "sftp"
+[_vfs.test.sftp]
+address = "ub-x2go4.ub.p.unibas.ch:22"
+user = "jumpuser"
+privatekey = ["C:/daten/keys/syncthing/putty_ed25519.priv.openssh"]
+basedir = "/digispace"
+sessions = 3
+zipasfoldercache = 2
+
+[vfs.tests3]
+name = "tests3"
+type = "S3"
+[vfs.tests3.S3]
+AccessKeyID = "009145048a6e9c39de76"
+SecretAccessKey = "%%TESTSECRET%%"
+Endpoint = "s3-zh.lts.switch.ch"
+Region = "zurich"
+UseSSL = true
+Debug = false
+CAPEM = "ignore"
+BaseUrl = ""
+ZipAsFolderCache = 0
+
+[vfs.testcache]
+name = "testcache"
+type = "S3"
+[vfs.testcache.S3]
+AccessKeyID = "AKIA312912CB2F7328D3"
+SecretAccessKey = "%%TESTCACHESECRET%%"
+Endpoint = "vip-ecs-ub.storage.p.unibas.ch"
+Region = ""
+UseSSL = true
+Debug = false
+BaseUrl = ""
+ZipAsFolderCache = 0
+CAPEM = "ignore"
+
+[log]
+level = "debug"
+
+[log.stash]
+#logstash_host="sb-uwf4.swissbib.unibas.ch"
+logstashhost="localhost"
+logstashport=5046
+logstashtracelevel="ERROR"
+namespace="mediaservermain"
+dataset=""
+#dataset="logs-mediaserver"
+[log.stash.tls]
+type="file"
+ca=["certs/ca.crt"]
+interval="1h"
+[log.stash.tls.file]
+cert="certs/ub-log.ub.unibas.ch.cert.pem"
+key="certs/ub-log.ub.unibas.ch.key.pem"
