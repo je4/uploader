@@ -12,18 +12,17 @@ import (
 )
 
 type UploaderMainConfig struct {
-	LocalAddr     string                `toml:"localaddr"`
-	Domain        string                `toml:"domain"`
-	ExternalAddr  string                `toml:"externaladdr"`
-	WebTLS        *loader.Config        `toml:"webtls"`
-	LogFile       string                `toml:"logfile"`
-	LogLevel      string                `toml:"loglevel"`
-	VFS           map[string]*vfsrw.VFS `toml:"vfs"`
-	Log           stashconfig.Config    `toml:"log"`
-	UploadPath    string                `toml:"uploadpath"`
-	CachePath     string                `toml:"uploadcachepath"`
-	FilePath      string                `toml:"filepath"`
-	MaxUploadTime config.Duration       `toml:"maxuploadtime"`
+	LocalAddr          string                `toml:"localaddr"`
+	Domain             string                `toml:"domain"`
+	ExternalAddr       string                `toml:"externaladdr"`
+	WebTLS             *loader.Config        `toml:"webtls"`
+	LogFile            string                `toml:"logfile"`
+	LogLevel           string                `toml:"loglevel"`
+	VFS                map[string]*vfsrw.VFS `toml:"vfs"`
+	Log                stashconfig.Config    `toml:"log"`
+	DefaultUploadPath  string                `toml:"defaultuploadpath"`
+	AllowedUploadPaths []string              `toml:"alloweduploadpaths"`
+	MaxUploadTime      config.Duration       `toml:"maxuploadtime"`
 }
 
 func LoadUploaderMainConfig(fSys fs.FS, fp string, conf *UploaderMainConfig) error {

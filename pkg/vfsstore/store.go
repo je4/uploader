@@ -7,7 +7,7 @@
 // No cleanup is performed so you may want to run a cronjob to ensure your disk
 // is not filled up with old and finished uploads.
 //
-// Related to the filestore is the package filelocker, which provides a file-based
+// Related to the VFSStore is the package filelocker, which provides a file-based
 // locking mechanism. The use of some locking method is recommended and further
 // explained in https://tus.github.io/tusd/advanced-topics/locks/.
 package vfsstore
@@ -16,7 +16,6 @@ import (
 	"context"
 	"emperror.dev/errors"
 	"fmt"
-	"github.com/bluele/gcache"
 	"github.com/google/uuid"
 	"github.com/je4/filesystem/v3/pkg/writefs"
 	"github.com/je4/utils/v2/pkg/zLogger"
@@ -24,165 +23,149 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
-// VFSStore See the handler.DataStore interface for documentation about the different
+func VFSPathJoin(elem ...string) string {
+	if len(elem) == 0 {
+		return ""
+	}
+	if !strings.HasPrefix(elem[0], "vfs://") {
+		return filepath.ToSlash(filepath.Join(elem...))
+	}
+	return "vfs://" + filepath.ToSlash(filepath.Join(append([]string{elem[0][6:]}, elem[1:]...)...))
+}
+
+// See the handler.DataStore interface for documentation about the different
 // methods.
 type VFSStore struct {
-	fsys        fs.FS
-	uploadPath  string
-	cachePath   string
-	filePath    string
-	uploadCache gcache.Cache
+	// Relative or absolute path to store files in. VFSStore does not check
+	// whether the path exists, use os.MkdirAll in this case on your own.
+	defaultPath string
+
+	// List of path prefixes that are allowed to be used as upload folders
+	allowedPaths []string
+
+	// virtual filesystem implements writefs
+	vfs fs.FS
+
+	uploads       map[string]*fileUpload
+	uploadsLock   *sync.RWMutex
+	maxUploadTime time.Duration
+	logger        zLogger.ZLogger
 }
 
 // New creates a new file based storage backend. The directory specified will
 // be used as the only storage entry. This method does not check
 // whether the path exists, use os.MkdirAll to ensure.
-func New(fsys fs.FS, uploadPath, cachePath, filePath string, cacheExpiration time.Duration, logger zLogger.ZLogger) VFSStore {
-	vfsStore := &VFSStore{
-		fsys:       fsys,
-		uploadPath: strings.TrimRight(uploadPath, "/"),
-		cachePath:  strings.TrimRight(cachePath, "/"),
-		filePath:   strings.Trim(filepath.ToSlash(filepath.Clean(filePath)), "/"),
-		uploadCache: gcache.New(100).LRU().Expiration(cacheExpiration).EvictedFunc(func(key any, value any) {
-			upload, ok := value.(*vfsUpload)
-			if !ok {
-				logger.Error().Msgf("cannot cast value of key %v to *vfsUpload", key)
-				return
-			}
-			if err := upload.Terminate(context.Background()); err != nil {
-				logger.Error().Err(err).Msgf("cannot terminate upload %v", key)
-				return
-			}
-		}).Build(),
+func New(vfs fs.FS, defaultPath string, allowedPaths []string, duration time.Duration, logger zLogger.ZLogger) VFSStore {
+	return VFSStore{
+		defaultPath:   defaultPath,
+		allowedPaths:  allowedPaths,
+		vfs:           vfs,
+		uploads:       make(map[string]*fileUpload),
+		uploadsLock:   &sync.RWMutex{},
+		maxUploadTime: duration,
+		logger:        logger,
 	}
-	return *vfsStore
 }
 
 // UseIn sets this store as the core data store in the passed composer and adds
 // all possible extension to it.
 func (store VFSStore) UseIn(composer *handler.StoreComposer) {
 	composer.UseCore(store)
-	composer.UseTerminater(store)
-	composer.UseConcater(store)
+	//composer.UseTerminater(store)
+	//composer.UseConcater(store)
 	composer.UseLengthDeferrer(store)
+	//composer.UseContentServer(store)
+	//composer.UseLocker(store)
 }
 
 func (store VFSStore) NewUpload(ctx context.Context, info handler.FileInfo) (handler.Upload, error) {
+	var basePath string
+	if basePath = info.MetaData["basePath"]; basePath == "" {
+		basePath = store.defaultPath
+	}
 	if info.ID == "" {
 		info.ID = uuid.New().String()
 	}
 
+	if _, ok := store.getUpload(info.ID); ok {
+		return nil, errors.New("upload with the same ID already exists")
+	}
+
 	// The binary file's location might be modified by the pre-create hook.
 	var binPath string
-	if info.Storage != nil && info.Storage["Path"] != "" {
+	if info.Storage != nil && info.Storage["defaultPath"] != "" {
 		// filepath.Join treats absolute and relative paths the same, so we must
 		// handle them on our own. Absolute paths get used as-is, while relative
 		// paths are joined to the storage path.
-		if strings.HasPrefix(info.Storage["Path"], "vfs:") {
-			binPath = info.Storage["Path"]
+		if strings.HasPrefix(info.Storage["defaultPath"], "vfs://") {
+			binPath = info.Storage["defaultPath"]
 		} else {
-			binPath = store.uploadPath + "/" + filepath.ToSlash(filepath.Clean(info.Storage["Path"]))
+			binPath = VFSPathJoin(basePath, info.Storage["defaultPath"])
 		}
 	} else {
-		binPath = store.defaultBinPath(info.ID)
+		binPath = VFSPathJoin(basePath, info.ID)
+	}
+
+	// check if path is allowed
+	pathAllowed := false
+	for _, allowedPath := range store.allowedPaths {
+		if strings.HasPrefix(binPath, allowedPath) {
+			pathAllowed = true
+			break
+		}
+	}
+	if !pathAllowed {
+		return nil, fmt.Errorf("path not allowed: %s", binPath)
 	}
 
 	info.Storage = map[string]string{
-		"Type": "vfsstore",
-		"Path": binPath,
+		"Type":        "VFSStore",
+		"defaultPath": binPath,
 	}
 
 	// Create binary file with no content
-	file, err := writefs.Create(store.fsys, binPath)
+	fp, err := writefs.Create(store.vfs, binPath)
 	if err != nil {
-		return nil, errors.Wrapf(err, "cannot create file '%s'", binPath)
+		return nil, errors.Wrapf(err, "cannot create file %s", binPath)
 	}
 
-	upload := &vfsUpload{
-		fsys:    store.fsys,
-		file:    file,
-		info:    info,
-		binPath: binPath,
-	}
-
-	store.uploadCache.Set(info.ID, upload)
-
-	/*
-		// writeInfo creates the file by itself if necessary
-		if err := upload.writeInfo(); err != nil {
-			return nil, err
-		}
-	*/
+	upload := newUpload(info, binPath, fp, &store)
 
 	return upload, nil
 }
 
 func (store VFSStore) GetUpload(ctx context.Context, id string) (handler.Upload, error) {
-	id = strings.TrimPrefix(id, store.filePath+"/")
-
-	uploadAny, err := store.uploadCache.Get(id)
-	if err != nil {
-		if !errors.Is(err, gcache.KeyNotFoundError) {
-			return nil, handler.ErrNotFound
-		}
-		return nil, errors.Wrapf(err, "cannot get upload %v from cache", id)
-	}
-	upload, ok := uploadAny.(*vfsUpload)
+	id = strings.TrimPrefix(id, "files/")
+	upload, ok := store.getUpload(id)
 	if !ok {
-		return nil, errors.Errorf("cannot cast value of key %v to *vfsUpload", id)
-	}
-	if upload.file == nil {
-		store.uploadCache.Remove(id)
-		return nil, handler.ErrNotFound
+		return nil, errors.Wrapf(handler.ErrNotFound, "upload with id %s not found", id)
 	}
 	return upload, nil
 }
 
-func (store VFSStore) AsTerminatableUpload(upload handler.Upload) handler.TerminatableUpload {
-	return upload.(*vfsUpload)
-}
-
 func (store VFSStore) AsLengthDeclarableUpload(upload handler.Upload) handler.LengthDeclarableUpload {
-	return upload.(*vfsUpload)
+	return upload.(*fileUpload)
 }
 
-func (store VFSStore) AsConcatableUpload(upload handler.Upload) handler.ConcatableUpload {
-	return upload.(*vfsUpload)
+func (store VFSStore) addUpload(upload *fileUpload) {
+	store.uploadsLock.Lock()
+	defer store.uploadsLock.Unlock()
+	store.uploads[upload.info.ID] = upload
 }
 
-// defaultBinPath returns the path to the file storing the binary data, if it is
-// not customized using the pre-create hook.
-func (store VFSStore) defaultBinPath(id string) string {
-	return store.uploadPath + "/" + filepath.ToSlash(filepath.Clean(filepath.Join(store.filePath, id)))
+func (store VFSStore) removeUpload(id string) {
+	store.uploadsLock.Lock()
+	defer store.uploadsLock.Unlock()
+	delete(store.uploads, id)
 }
 
-// infoPath returns the path to the .info file storing the file's info.
-func (store VFSStore) infoPath(id string) string {
-	return store.cachePath + "/" + filepath.ToSlash(filepath.Clean(filepath.Join(store.filePath, id+".info")))
-}
-
-// createFile creates the file with the content. If the corresponding directory does not exist,
-// it is created. If the file already exists, its content is removed.
-func createFile(fsys fs.FS, path string, content []byte) error {
-	fileinfo, err := fs.Stat(fsys, path)
-	if err == nil {
-		if fileinfo.IsDir() {
-			return fmt.Errorf("cannot create file '%s': path is a directory", path)
-		}
-		if err := writefs.Remove(fsys, path); err != nil {
-			return fmt.Errorf("cannot remove existing file '%s': %s", path, err)
-		}
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("cannot stat '%s': %s", path, err)
-	}
-	if content == nil {
-		content = []byte{}
-	}
-	if _, err := writefs.WriteFile(fsys, path, content); err != nil {
-		return errors.Wrapf(err, "cannot create and write file '%s'", path)
-	}
-	return nil
+func (store VFSStore) getUpload(id string) (*fileUpload, bool) {
+	store.uploadsLock.RLock()
+	defer store.uploadsLock.RUnlock()
+	upload, ok := store.uploads[id]
+	return upload, ok
 }

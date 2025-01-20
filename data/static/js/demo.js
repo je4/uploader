@@ -65,6 +65,7 @@ function startUpload() {
         metadata: {
             filename: file.name,
             filetype: file.type,
+            basePath: 'vfs://upload/test',
         },
         onError(error) {
             if (error.originalRequest) {
@@ -97,7 +98,7 @@ function startUpload() {
 
     upload = new tus.Upload(file, options)
     upload.findPreviousUploads().then((previousUploads) => {
-        askToResumeUpload(previousUploads, upload)
+        //askToResumeUpload(previousUploads, upload)
 
         upload.start()
         uploadIsRunning = true

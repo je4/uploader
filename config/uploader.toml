@@ -2,9 +2,8 @@ localaddr = ":8761"
 domain = "ubmedia"
 externaladdr = "https://localhost:8761"
 loglevel = "DEBUG"
-uploadpath = "vfs://upload/"
-uploadcachepath = "vfs://uploadcache/"
-filepath = "/files/"
+defaultuploadpath = "vfs://upload/"
+alloweduploadpaths = ["vfs://upload/"]
 maxuploadtime = "1h"
 
 
