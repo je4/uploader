@@ -22,6 +22,7 @@ import (
 	"github.com/tus/tusd/v2/pkg/handler"
 	"io/fs"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,23 @@ func VFSPathJoin(elem ...string) string {
 		return filepath.ToSlash(filepath.Join(elem...))
 	}
 	return "vfs://" + filepath.ToSlash(filepath.Join(append([]string{elem[0][6:]}, elem[1:]...)...))
+}
+
+func VFSPathClean(p string) string {
+	if !strings.HasPrefix(p, "vfs://") {
+		return filepath.ToSlash(filepath.Clean(p))
+	}
+	return "vfs://" + filepath.ToSlash(filepath.Clean(p[6:]))
+}
+
+var pathAllowedChars = regexp.MustCompile(`^[a-zA-Z0-9_\-/.+ ]+$`)
+
+func VFSPathCheck(p string) bool {
+	if strings.HasPrefix(p, "vfs://") {
+		p = p[6:]
+	}
+
+	return false
 }
 
 // See the handler.DataStore interface for documentation about the different
@@ -97,14 +115,14 @@ func (store VFSStore) NewUpload(ctx context.Context, info handler.FileInfo) (han
 
 	// The binary file's location might be modified by the pre-create hook.
 	var binPath string
-	if info.Storage != nil && info.Storage["defaultPath"] != "" {
+	if info.Storage != nil && info.Storage["Path"] != "" {
 		// filepath.Join treats absolute and relative paths the same, so we must
 		// handle them on our own. Absolute paths get used as-is, while relative
 		// paths are joined to the storage path.
-		if strings.HasPrefix(info.Storage["defaultPath"], "vfs://") {
-			binPath = info.Storage["defaultPath"]
+		if strings.HasPrefix(info.Storage["Path"], "vfs://") {
+			binPath = info.Storage["Path"]
 		} else {
-			binPath = VFSPathJoin(basePath, info.Storage["defaultPath"])
+			binPath = VFSPathJoin(basePath, info.Storage["Path"])
 		}
 	} else {
 		binPath = VFSPathJoin(basePath, info.ID)

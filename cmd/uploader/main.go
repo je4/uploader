@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"emperror.dev/errors"
 	"flag"
-	"fmt"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/je4/filesystem/v3/pkg/vfsrw"
@@ -153,7 +152,7 @@ func main() {
 				defaultPath = vfsstore.VFSPathJoin(basePath, defaultPath)
 			}
 			if defaultPath != "" {
-				fic.Storage["defaultPath"] = defaultPath
+				fic.Storage["Path"] = defaultPath
 			}
 			return resp, fic, nil
 		},
@@ -190,7 +189,7 @@ func main() {
 	logger.Info().Msgf("starting server at %s\n", conf.ExternalAddr)
 	if err := server.ListenAndServeTLS("", ""); !errors.Is(err, http.ErrServerClosed) {
 		// unexpected error. port in use?
-		fmt.Errorf("server on '%s' ended: %v", conf.LocalAddr, err)
+		logger.Error().Err(err).Msgf("server on '%s' ended: %v", conf.LocalAddr, err)
 	}
 
 }
